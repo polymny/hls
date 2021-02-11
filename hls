@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+
+# USAGE:
+#   header ffmpeg <input>
+#   header manifest <input>
+#
+# EXAMPLE:
+#   header ffmpeg video.mkv
+header() {
+    case $1 in
+        "ffmpeg")
+            echo ffmpeg -hide_banner -y -i $2
+            ;;
+
+        "manifest")
+            echo -e "#EXTM3U\n#EXT-X-VERSION:3"
+            ;;
+
+        *)
+            return 1
+            ;;
+    esac
+
+}
+
+# USAGE:
+#   params ffmpeg <output> <resolutions...>
+#   params manifest <output> <resolutions...>
+#
+# EXAMPLE:
+#   params ffmpeg 360p 480p 720p
+params() {
+
+    argument=$1
+    shift
+
+    output=$1
+    shift
+
+    while [ $# -gt 0 ]; do
+
+        case $1 in
+            "360p")
+                width="640"
+                height="360"
+                bitrate="800000"
+                maxrate="856000"
+                bufsize="1200000"
+                audiorate="96000"
+                ;;
+            "480p")
+                width="842"
+                height="480"
+                bitrate="1400000"
+                maxrate="1498000"
+                bufsize="2100000"
+                audiorate="128000"
+                ;;
+            "720p")
+                width="1280"
+                height="720"
+                bitrate="2800000"
+                maxrate="2996000"
+                bufsize="4200000"
+                audiorate="128000"
+                ;;
+            "1080p")
+                width="1920"
+                height="1080"
+                bitrate="5000000"
+                maxrate="5350000"
+                bufsize="7500000"
+                audiorate="192000"
+                ;;
+            *)
+                return 1
+                ;;
+        esac
+
+        case $argument in
+            "ffmpeg")
+                echo -vf \
+                    scale=w=$width:h=$height:force_original_aspect_ratio=decrease \
+                    -c:a aac \
+                    -ar 48000 \
+                    -c:v h264 \
+                    -profile:v main \
+                    -crf 20 \
+                    -sc_threshold 0 \
+                    -g 48 \
+                    -keyint_min 48 \
+                    -hls_time 4 \
+                    -hls_playlist_type vod \
+                    -b:v $bitrate \
+                    -maxrate $maxrate \
+                    -bufsize $bufsize \
+                    -b:a $audiorate \
+                    -hls_segment_filename \
+                    $output/${height}p_%03d.ts \
+                    $output/${height}p.m3u8;;
+
+            "manifest")
+                echo -e "#EXT-X-STREAM-INF:BANDWIDTH=$bitrate,RESOLUTION=${width}x${height}\n${height}p.m3u8"
+                ;;
+
+            *)
+                return 1
+                ;;
+        esac
+
+        shift
+
+    done
+
+}
+
+# USAGE:
+#   miniatures <input> <output>
+# EXAMPLE:
+#   miniatures video.mkv video
+miniatures() {
+    duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_format_entry duration $1)
+    frames=$(echo 'scale=6;' $duration ' / 101' | bc)
+    middle=$(echo 'scale=6;' $duration ' / 2' | bc)
+    ffmpeg -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
+    ffmpeg -i $1 -ss $middle -vframes 1 $2/poster.png
+}
+
+# USAGE:
+#   encode <input> <output> <resolutions...>
+#
+# EXAMPLE:
+#   encode video.mkv video 360p 480p 720p
+encode() {
+    input=$1
+    shift
+
+    output=$1
+    shift
+
+    mkdir -p $output
+
+    # Encode the video
+    command=$(header ffmpeg $input && params ffmpeg $output $@)
+    $command
+
+    # Generate the manifest
+    header manifest $input > $output/manifest.m3u8
+    params manifest $output $@ >> $output/manifest.m3u8
+
+    # Generate the miniatures
+    miniatures $input $output
+}
+
+
+encode $@
