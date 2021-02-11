@@ -138,6 +138,11 @@ encode() {
     output=$1
     shift
 
+    if [ -d $output ] || [ -f $output ]; then
+        echo "error: output already exists"
+        exit 1
+    fi
+
     mkdir -p $output
 
     # Encode the video
