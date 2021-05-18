@@ -116,6 +116,7 @@ params() {
 
 # USAGE:
 #   miniatures <input> <output>
+#
 # EXAMPLE:
 #   miniatures video.mkv video
 miniatures() {
@@ -124,6 +125,42 @@ miniatures() {
     middle=$(echo 'scale=6;' $duration ' / 2' | bc)
     ffmpeg -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
     ffmpeg -i $1 -ss $middle -vframes 1 $2/poster.png
+}
+
+# USAGE:
+#  format-vtt <input>
+#
+# EXAMPLE:
+#  format-vtt 24290
+format-vtt() {
+    millis=$(($1 % 1000))
+    total_seconds=$(($1 / 1000))
+    seconds=$(($total_seconds % 60))
+    minutes=$((($total_seconds / 60) % 60))
+    hours=$(($total_seconds / 3600))
+    printf "%02g:%02g:%02g.%03g\n" $hours $minutes $seconds $millis
+}
+
+# USAGE:
+#   miniatures-vtt <input> <output>
+#
+# EXAMPLE:
+#   miniatures-vtt video.mkv miniatures.vtt
+miniatures-vtt() {
+    duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_format_entry duration $1)
+    duration=$(echo "$duration_s * 1000 / 1" | bc)
+    step=$((duration / 100))
+
+    echo "WEBVTT\n" > $2
+
+    for i in `seq 0 100`; do
+        from=$(($i * $step))
+        to=$((($i + 1) * $step))
+        echo $(($i + 1)) >> $2
+        echo $(format-vtt $from) "-->" $(format-vtt $to) >> $2
+        echo "miniature-$(printf '%03g' $i).png" >> $2
+        echo >> $2
+    done
 }
 
 # USAGE:
@@ -155,6 +192,7 @@ encode() {
 
     # Generate the miniatures
     miniatures $input $output
+    miniatures-vtt $input $output/miniatures.vtt
 }
 
 
