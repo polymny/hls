@@ -120,11 +120,11 @@ params() {
 # EXAMPLE:
 #   miniatures video.mkv video
 miniatures() {
-    duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_format_entry duration $1)
+    duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
     frames=$(echo 'scale=6;' $duration ' / 101' | bc)
     middle=$(echo 'scale=6;' $duration ' / 2' | bc)
     ffmpeg -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
-    ffmpeg -i $1 -ss $middle -vframes 1 $2/poster.png
+    ffmpeg -i $1 -ss $middle -frames:v 1 -update true $2/poster.png
 }
 
 # USAGE:
@@ -147,7 +147,7 @@ format-vtt() {
 # EXAMPLE:
 #   miniatures-vtt video.mkv miniatures.vtt
 miniatures-vtt() {
-    duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_format_entry duration $1)
+    duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
     duration=$(echo "$duration_s * 1000 / 1" | bc)
     step=$((duration / 100))
 
@@ -192,7 +192,7 @@ encode() {
 
     # Generate the miniatures
     miniatures $input $output
-    miniatures-vtt $input $output/miniatures.vtt
+    # miniatures-vtt $input $output/miniatures.vtt
 }
 
 
