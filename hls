@@ -1,19 +1,52 @@
 #!/usr/bin/env bash
 
 # USAGE:
-#   header ffmpeg <input>
-#   header manifest <input>
+#   header ffmpeg [arguments] <input>
+#   header manifest [arguments] <input>
 #
 # EXAMPLE:
 #   header ffmpeg video.mkv
+#   header manifest --subtitles subs video.mkv
 header() {
-    case $1 in
+    local argument=$1
+    shift
+
+    local subtitles=""
+
+    while [[ $1 == --* ]]; do
+        case $1 in
+            "--subtitles")
+                if [[ $2 == --* ]]; then
+                    echo "error: option \"$1\" expects subtitles name as argument"
+                    return 1
+                fi
+
+                shift
+                subtitles=$1
+                shift
+                ;;
+
+            *)
+                echo "error: unrecognized option \"$1\""
+                exit 1
+                ;;
+        esac
+    done
+
+    local input=$1
+    shift
+
+    case $argument in
         "ffmpeg")
-            echo ffmpeg -hide_banner -y -i $2
+            echo ffmpeg -hide_banner -y -i $input
             ;;
 
         "manifest")
             echo -e "#EXTM3U\n#EXT-X-VERSION:3"
+
+            if [ "$subtitles" != "" ]; then
+                echo "#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID=\"$subtitles\",CHARACTERISTICS=\"public.accessibility.transcribes-spoken-dialog\",NAME=\"Transcription\",AUTOSELECT=YES,DEFAULT=NO,FORCED=NO,URI=\"subtitles.m3u8\""
+            fi
             ;;
 
         *)
@@ -25,16 +58,39 @@ header() {
 
 # USAGE:
 #   params ffmpeg <output> <resolutions...>
-#   params manifest <output> <resolutions...>
+#   params manifest [argument] <output> <resolutions...>
 #
 # EXAMPLE:
 #   params ffmpeg 360p 480p 720p
+#   params manifest 360p 480p 720p
+#   params manifest --subtitles subs 360p 480p 720p
 params() {
-
-    argument=$1
+    local argument=$1
     shift
 
-    output=$1
+    local subtitles=""
+
+    while [[ $1 == --* ]]; do
+        case $1 in
+            "--subtitles")
+                if [[ $2 == --* ]]; then
+                    echo "error: option \"$1\" expects subtitles name as argument"
+                    return 1
+                fi
+
+                shift
+                subtitles=$1
+                shift
+                ;;
+
+            *)
+                echo "error: unrecognized option \"$1\""
+                exit 1
+                ;;
+        esac
+    done
+
+    local output=$1
     shift
 
     while [ $# -gt 0 ]; do
@@ -100,7 +156,11 @@ params() {
                     $output/${height}p.m3u8;;
 
             "manifest")
-                echo -e "#EXT-X-STREAM-INF:BANDWIDTH=$bitrate,RESOLUTION=${width}x${height},SUBTITLES=\"subs\"\n${height}p.m3u8"
+                if [ "$subtitles" == "" ]; then
+                    echo -e "#EXT-X-STREAM-INF:BANDWIDTH=$bitrate,RESOLUTION=${width}x${height}\n${height}p.m3u8"
+                else
+                    echo -e "#EXT-X-STREAM-INF:BANDWIDTH=$bitrate,RESOLUTION=${width}x${height},SUBTITLES=\"subs\"\n${height}p.m3u8"
+                fi
                 ;;
 
             *)
@@ -115,14 +175,33 @@ params() {
 }
 
 # USAGE:
+#   subtitles-manifest <input> <subtitles>
+#
+# EXAMPLE:
+#   subtitles-manifest video.mp4 subtitles.webvtt
+subtitles-manifest() {
+    local duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local duration_int=$(($(echo $duration | cut -d '.' -f 1) + 1))
+
+    echo "#EXTM3U"
+    echo "#EXT-X-TARGETDURATION:$duration_int"
+    echo "#EXT-X-VERSION:3"
+    echo "#EXT-X-MEDIA-SEQUENCE:0"
+    echo "#EXT-X-PLAYLIST-TYPE:VOD"
+    echo "#EXTINF:$duration,"
+    echo $2
+    echo "#EXT-X-ENDLIST"
+}
+
+# USAGE:
 #   miniatures <input> <output>
 #
 # EXAMPLE:
 #   miniatures video.mkv video
 miniatures() {
-    duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
-    frames=$(echo 'scale=6;' $duration ' / 101' | bc)
-    middle=$(echo 'scale=6;' $duration ' / 2' | bc)
+    local duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local frames=$(echo 'scale=6;' $duration ' / 101' | bc)
+    local middle=$(echo 'scale=6;' $duration ' / 2' | bc)
     ffmpeg -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
     ffmpeg -i $1 -ss $middle -frames:v 1 -update true $2/poster.png
 }
@@ -133,11 +212,11 @@ miniatures() {
 # EXAMPLE:
 #  format-vtt 24290
 format-vtt() {
-    millis=$(($1 % 1000))
-    total_seconds=$(($1 / 1000))
-    seconds=$(($total_seconds % 60))
-    minutes=$((($total_seconds / 60) % 60))
-    hours=$(($total_seconds / 3600))
+    local millis=$(($1 % 1000))
+    local total_seconds=$(($1 / 1000))
+    local seconds=$(($total_seconds % 60))
+    local minutes=$((($total_seconds / 60) % 60))
+    local hours=$(($total_seconds / 3600))
     printf "%02g:%02g:%02g.%03g\n" $hours $minutes $seconds $millis
 }
 
@@ -147,15 +226,15 @@ format-vtt() {
 # EXAMPLE:
 #   miniatures-vtt video.mkv miniatures.vtt
 miniatures-vtt() {
-    duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
-    duration=$(echo "$duration_s * 1000 / 1" | bc)
-    step=$((duration / 100))
+    local duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local duration=$(echo "$duration_s * 1000 / 1" | bc)
+    local step=$((duration / 100))
 
     echo "WEBVTT\n" > $2
 
     for i in `seq 0 100`; do
-        from=$(($i * $step))
-        to=$((($i + 1) * $step))
+        local from=$(($i * $step))
+        local to=$((($i + 1) * $step))
         echo $(($i + 1)) >> $2
         echo $(format-vtt $from) "-->" $(format-vtt $to) >> $2
         echo "miniature-$(printf '%03g' $i).png" >> $2
@@ -164,15 +243,38 @@ miniatures-vtt() {
 }
 
 # USAGE:
-#   encode <input> <output> <resolutions...>
+#   encode [arguments] <input> <output> <resolutions...>
 #
 # EXAMPLE:
 #   encode video.mkv video 360p 480p 720p
+#   encode --subtitles subtitles.webvtt video.mkv video 360p 480p 720p
 encode() {
-    input=$1
+    local subtitles=""
+
+    while [[ $1 == --* ]]; do
+        case $1 in
+            "--subtitles")
+                    if [[ $2 == --* ]]; then
+                        echo "error: option \"$1\" expects subtitles file as argument"
+                        exit 1
+                    fi
+
+                    shift
+                    subtitles=$1
+                    shift
+                ;;
+
+            *)
+                echo "error: unrecognized option \"$1\""
+                exit 1
+                ;;
+        esac
+    done
+
+    local input=$1
     shift
 
-    output=$1
+    local output=$1
     shift
 
     if [ -d $output ] || [ -f $output ]; then
@@ -187,8 +289,14 @@ encode() {
     $command
 
     # Generate the manifest
-    header manifest $input > $output/manifest.m3u8
-    params manifest $output $@ >> $output/manifest.m3u8
+    if [ $subtitles != "" ]; then
+        header manifest --subtitles subs $input > $output/manifest.m3u8
+        params manifest --subtitles subs $output $@ >> $output/manifest.m3u8
+        subtitles-manifest $input $subtitles > $output/subtitles.m3u8
+    else
+        header manifest $input > $output/manifest.m3u8
+        params manifest $output $@ >> $output/manifest.m3u8
+    fi
 
     # Generate the miniatures
     miniatures $input $output
