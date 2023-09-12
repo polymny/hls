@@ -38,7 +38,7 @@ header() {
 
     case $argument in
         "ffmpeg")
-            echo ffmpeg -hide_banner -y -i $input
+            echo ffmpeg -loglevel error -progress - -hide_banner -y -i $input
             ;;
 
         "manifest")
@@ -175,12 +175,21 @@ params() {
 }
 
 # USAGE:
+#   frame-count <input>
+#
+# EXAMPLE:
+#   frame-count video.mp4
+frame-count() {
+    ffprobe -v error -select_streams v:0 -count_packets -show_entries stream=nb_read_packets -of csv=p=0 $1
+}
+
+# USAGE:
 #   subtitles-manifest <input> <subtitles>
 #
 # EXAMPLE:
 #   subtitles-manifest video.mp4 subtitles.webvtt
 subtitles-manifest() {
-    local duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local duration=$(ffprobe -loglevel error -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
     local duration_int=$(($(echo $duration | cut -d '.' -f 1) + 1))
 
     echo "#EXTM3U"
@@ -199,11 +208,11 @@ subtitles-manifest() {
 # EXAMPLE:
 #   miniatures video.mkv video
 miniatures() {
-    local duration=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local duration=$(ffprobe -loglevel error -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
     local frames=$(echo 'scale=6;' $duration ' / 101' | bc)
     local middle=$(echo 'scale=6;' $duration ' / 2' | bc)
-    ffmpeg -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
-    ffmpeg -i $1 -ss $middle -frames:v 1 -update true $2/poster.png
+    ffmpeg -loglevel error -i $1 -vf scale=384:216,fps=1/$frames -vframes 101 -start_number 0 $2/miniature-%03d.png
+    ffmpeg -loglevel error -ss $middle -i $1 -frames:v 1 -update true $2/poster.png
 }
 
 # USAGE:
@@ -226,7 +235,7 @@ format-vtt() {
 # EXAMPLE:
 #   miniatures-vtt video.mkv miniatures.vtt
 miniatures-vtt() {
-    local duration_s=$(ffprobe -loglevel quiet -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
+    local duration_s=$(ffprobe -loglevel error -of 'compact=nokey=1:print_section=0' -show_entries format=duration $1)
     local duration=$(echo "$duration_s * 1000 / 1" | bc)
     local step=$((duration / 100))
 
@@ -284,12 +293,19 @@ encode() {
 
     mkdir -p $output
 
+    framecount=$(frame-count $input)
+
     # Encode the video
     command=$(header ffmpeg $input && params ffmpeg $output $@)
-    $command
+    $command | while read line; do
+        if [[ "$line" == frame=* ]]; then
+            frame=$(echo $line | cut -d '=' -f 2)
+            bc <<< "scale=2; $frame / $framecount"
+        fi
+    done
 
     # Generate the manifest
-    if [ $subtitles != "" ]; then
+    if [ "$subtitles" != "" ]; then
         header manifest --subtitles subs $input > $output/manifest.m3u8
         params manifest --subtitles subs $output $@ >> $output/manifest.m3u8
         subtitles-manifest $input $subtitles > $output/subtitles.m3u8
